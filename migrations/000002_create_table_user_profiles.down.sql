@@ -1,0 +1,11 @@
+DROP TRIGGER IF EXISTS update_users_updated_at ON users;
+DROP TRIGGER IF EXISTS update_user_profiles_updated_at ON user_profiles;
+DROP FUNCTION IF EXISTS update_updated_at_column();
+DROP INDEX IF EXISTS idx_user_profiles_created_at;
+DROP INDEX IF EXISTS idx_user_profiles_province;
+DROP INDEX IF EXISTS idx_user_profiles_city;
+DROP INDEX IF EXISTS idx_user_profiles_phone;
+DROP INDEX IF EXISTS idx_user_profiles_nik;
+DROP INDEX IF EXISTS idx_user_profiles_user_id;
+ALTER TABLE user_profiles DROP CONSTRAINT IF EXISTS fk_user_profiles_user;
+DROP TABLE IF EXISTS user_profiles;  
