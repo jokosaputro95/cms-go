@@ -20,11 +20,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-const (
-	maxFailedAttempts = 5
-	lockoutDuration   = 30 * time.Minute
-)
-
 // AuthServiceError adalah tipe error kustom
 type AuthServiceError string
 
@@ -37,8 +32,20 @@ const (
 	ErrInvalidToken      = AuthServiceError("token tidak valid atau kedaluwarsa")
 	ErrTokenAlreadyUsed  = AuthServiceError("token sudah digunakan sebelumnya")
 	ErrInvalidCredentials = AuthServiceError("kredensial tidak valid")
-	ErrUserLocked        = AuthServiceError("akun terkunci, silakan coba lagi nanti")
+	ErrUserLocked        = AuthServiceError("Account is temporarily locked, please try again later")
+	maxFailedAttempts = 5
+	lockoutDuration   = 30 * time.Minute
 )
+
+type LockoutError struct {
+	Message string
+	UnlockAt time.Time
+}
+
+func (e LockoutError) Error() string {
+	return e.Message
+
+}
 
 // AuthServiceInterface mendefinisikan kontrak untuk service otentikasi
 type AuthServiceInterface interface {
@@ -179,7 +186,10 @@ func (s *AuthService) LoginUser(ctx context.Context, req *dto.LoginRequestDTO, i
 
 	// Cek apakah akun terkunci
 	if user.LockedUntil != nil && user.LockedUntil.After(time.Now().UTC()) {
-    	return nil, ErrUserLocked
+    	return nil, &LockoutError{
+			Message: string(ErrUserLocked),
+			UnlockAt: *user.LockedUntil,
+		}
 	}
 
 	// 3. Bandingkan/Cek password
@@ -190,17 +200,22 @@ func (s *AuthService) LoginUser(ctx context.Context, req *dto.LoginRequestDTO, i
 	// Hanya increment sekali
     newFailedAttempts := user.FailedLoginAttempts + 1
 
-	// 🔍 DEBUG: Log nilai yang akan di-update
-        log.Printf("DEBUG - Will update to: newFailedAttempts=%d", newFailedAttempts)
+	// // 🔍 DEBUG: Log nilai yang akan di-update
+    //     log.Printf("DEBUG - Will update to: newFailedAttempts=%d", newFailedAttempts)
     
     // Cek apakah perlu lock
     var lockUntil *time.Time
-    if newFailedAttempts >= maxFailedAttempts {
+    
+	if newFailedAttempts >= maxFailedAttempts {
         lockedTime := time.Now().Add(lockoutDuration)
         lockUntil = &lockedTime
-        log.Printf("User %s locked after %d failed attempts", user.ID, newFailedAttempts)
-		log.Printf("DEBUG - User akan di-lock sampai: %v", lockUntil)
+        log.Printf("SECURITY: Account %s locked from IP %s after %d failed attempts", user.ID, ip, newFailedAttempts)
+		log.Printf("SECURITY: Account locked until: %v", lockedTime)
     }
+
+	if newFailedAttempts == 3 {
+		log.Printf("WARNING: User %s has %d failed attempts from IP %s", user.ID, newFailedAttempts, ip)
+	}
     
     // Update ke database
     if errUpd := s.authRepo.UpdateUserLoginStatus(ctx, user.ID, ip, newFailedAttempts, lockUntil); errUpd != nil {
@@ -208,16 +223,18 @@ func (s *AuthService) LoginUser(ctx context.Context, req *dto.LoginRequestDTO, i
         return nil, fmt.Errorf("failed to update login status: %w", errUpd)
     }
 
-	// 🔍 DEBUG: Konfirmasi update berhasil
-        log.Printf("DEBUG - UpdateUserLoginStatus SUCCESS for user %s with attempts=%d", user.ID, newFailedAttempts)
+	// // 🔍 DEBUG: Konfirmasi update berhasil
+    //     log.Printf("DEBUG - UpdateUserLoginStatus SUCCESS for user %s with attempts=%d", user.ID, newFailedAttempts)
     
     // Return error yang sesuai
     if lockUntil != nil {
-        return nil, ErrUserLocked
+        return nil, &LockoutError{
+            Message: string(ErrUserLocked),
+            UnlockAt: *lockUntil,
+        }
     }
-    return nil, ErrInvalidCredentials
-}
-
+    	return nil, ErrInvalidCredentials
+	}
 	// Login berhasil: reset failed attempts
 	if err := s.authRepo.UpdateUserLoginStatus(ctx, user.ID, ip, 0, nil); err != nil {
 		return nil, err

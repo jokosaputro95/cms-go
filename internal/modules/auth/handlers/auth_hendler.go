@@ -2,9 +2,10 @@ package handlers
 
 import (
 	"encoding/json"
-	"errors"
+	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/jokosaputro95/cms-go/internal/modules/auth/dto"
 	"github.com/jokosaputro95/cms-go/internal/modules/auth/services"
@@ -67,16 +68,38 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
     if err != nil {
         log.Printf("Gagal login pengguna: %v", err)
         
-        // Bedakan error types
-        switch {
-		case errors.Is(err, services.AuthServiceError(services.ErrUserLocked.Error())):
-            api.SendError(w, http.StatusTooManyRequests, "Account is temporarily locked")
-        case errors.Is(err, services.AuthServiceError(services.ErrInvalidCredentials.Error())):
-            api.SendError(w, http.StatusUnauthorized, "Invalid credentials")
-        default:
-            api.SendError(w, http.StatusInternalServerError, "Login failed")
-        }
-        return
+        // Error types
+        // switch {
+		// case errors.Is(err, services.AuthServiceError(services.ErrUserLocked.Error())):
+        //     api.SendError(w, http.StatusTooManyRequests, "Account is temporarily locked")
+        // case errors.Is(err, services.AuthServiceError(services.ErrInvalidCredentials.Error())):
+        //     api.SendError(w, http.StatusUnauthorized, "Invalid credentials")
+        // default:
+        //     api.SendError(w, http.StatusInternalServerError, "Login failed")
+        // }
+        // return
+
+		switch err := err.(type) {
+		case *services.LockoutError:
+			retryAfter := int(time.Until(err.UnlockAt).Seconds())
+			details := map[string]interface{}{
+				"unlock_at": err.UnlockAt,
+				"retry_after": retryAfter,
+			}
+			w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfter))
+			api.SendDetailedError(
+				w, http.StatusTooManyRequests,
+				err.Error(),
+				"account_locked",
+				details,
+			)
+		case services.AuthServiceError:
+			api.SendDetailedError(w, http.StatusUnauthorized, err.Error(), "invalid_credentials", nil)
+
+		default:
+			api.SendError(w, http.StatusInternalServerError, "Login failed")
+		}
+		return
     }
     
     api.SendSuccess(w, http.StatusOK, "Login successful", tokenPair, nil)
