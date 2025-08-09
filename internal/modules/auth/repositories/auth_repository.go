@@ -19,10 +19,12 @@ type AuthRepositoryInterface interface {
 	FindUserByUsername(ctx context.Context, username string) (*models.User, error)
 	SaveVerificationToken(ctx context.Context, token *models.EmailVerificationToken) error
 	FindVerificationToken(ctx context.Context, tokenID string) (*models.EmailVerificationToken, error)
-	UpdateUserStatus(ctx context.Context, userID string, status string, emailVerified bool, verifiedAt time.Time) error
+	UpdateUserStatus(ctx context.Context, userID string, tokenStr string) error
 	UpdateUserLoginStatus(ctx context.Context, userID string, ip string, failedAttempts int, lockUntil *time.Time) error
-	RevokeRefreshToken(ctx context.Context, token string, expiresAt time.Time) error
+	RevokeToken(ctx context.Context, token string, expiresAt time.Time) error
 	IsTokenRevoked(ctx context.Context, token string) (bool, error)
+	FindTokenByUserID(ctx context.Context, userID string) (*models.RevokedToken, error)
+	FindTokenByID(ctx context.Context, tokenID string) (*models.RevokedToken, error)
 }
 
 // AuthRepository adalah implementasi dari AuthRepositoryInterface
@@ -69,30 +71,42 @@ func (r *AuthRepository) SaveUser(ctx context.Context, user *models.User, profil
 		return fmt.Errorf("gagal menyimpan pengguna: %w", err)
 	}
 
-	// Simpan User Profile
-	profile.ID = uuid.New().String()
-	profile.UserID = user.ID
-	profile.CreatedAt = time.Now().UTC()
-	profile.UpdatedAt = profile.CreatedAt
+	var nilString *string
+    var nilTime *time.Time
+    var country = "Indonesia"
 
-	profileQuery := `
-		INSERT INTO user_profiles (
-			id, user_id, first_name, last_name, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6)
-	`
-	_, err = tx.ExecContext(ctx, profileQuery,
-		profile.ID,
-		profile.UserID,
-		profile.FirstName,
-		profile.LastName,
-		profile.CreatedAt,
-		profile.UpdatedAt,
-	)
-	if err != nil {
-		return fmt.Errorf("gagal menyimpan profil pengguna: %w", err)
-	}
+	// Simpan User Profile dengan semua kolom
+    profileQuery := `
+        INSERT INTO user_profiles (
+            id, user_id, first_name, last_name, phone, bio, avatar_url, nik, date_of_birth, gender, address, village, district, city, province, postal_code, country, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+    `
+    _, err = tx.ExecContext(ctx, profileQuery,
+        profile.ID,
+        profile.UserID,
+        profile.FirstName,
+        profile.LastName,
+        nilString,   // phone
+        nilString,   // bio
+        nilString,   // avatar_url
+        nilString,   // nik
+        nilTime,     // date_of_birth
+        nilString,   // gender
+        nilString,   // address
+        nilString,   // village
+        nilString,   // district
+        nilString,   // city
+        nilString,   // province
+        nilString,   // postal_code
+        country,     // country
+        profile.CreatedAt,
+        profile.UpdatedAt,
+    )
+    if err != nil {
+        return fmt.Errorf("gagal menyimpan profil pengguna: %w", err)
+    }
 
-	return tx.Commit()
+    return tx.Commit()
 }
 
 // FindUserByEmail mencari pengguna berdasarkan email
@@ -266,8 +280,8 @@ func (r *AuthRepository) UpdateUserLoginStatus(ctx context.Context, userID strin
 	return nil
 }
 
-// RevokeRefreshToken mencatat token yang dicabut ke dalam database
-func (r *AuthRepository) RevokeRefreshToken(ctx context.Context, token string, expiresAt time.Time) error {
+// RevokeToken mencatat token yang dicabut ke dalam database
+func (r *AuthRepository) RevokeToken(ctx context.Context, token string, expiresAt time.Time) error {
 	query := `
 		INSERT INTO revoked_tokens 
 		(token, expires_at) 
@@ -275,7 +289,7 @@ func (r *AuthRepository) RevokeRefreshToken(ctx context.Context, token string, e
 	`
 	_, err := r.db.ExecContext(ctx, query, token, expiresAt)
 	if err != nil {
-		return fmt.Errorf("gagal mencabut refresh token: %w", err)
+		return fmt.Errorf("gagal mencabut token: %w", err)
 	}
 	return nil
 }

@@ -20,6 +20,7 @@ func NewAuthRoutes(authHandler *handlers.AuthHandler) *AuthRoutes {
 func (r *AuthRoutes) RegisterRoutes(router *http.ServeMux) {
 	router.HandleFunc("/auth/register", r.authHandler.Register)
 	router.HandleFunc("/auth/login", r.authHandler.Login)
+	router.HandleFunc("/auth/logout", r.authHandler.Logout)
 	router.HandleFunc("/auth/verify-email", r.authHandler.VerifyEmail)
 	router.HandleFunc("/auth/refresh-token", r.authHandler.RefreshToken)
 }

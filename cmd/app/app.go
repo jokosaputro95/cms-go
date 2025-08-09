@@ -59,7 +59,7 @@ func StartServer(isProd bool, envFile string) (*App, error) {
 	
 	// Inisialisasi rute dan middleware
 	authRoutes := auth_routes.NewAuthRoutes(authHandler)
-	authMiddleware := middleware.AuthMiddleware(jwtService)
+	authMiddleware := middleware.AuthMiddleware(jwtService, authService)
 
 	// 4. Daftarkan rute ke router
 	router := http.NewServeMux()

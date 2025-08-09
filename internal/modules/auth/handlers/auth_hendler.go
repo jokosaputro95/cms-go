@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jokosaputro95/cms-go/internal/modules/auth/dto"
@@ -145,4 +146,28 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	api.SendSuccess(w, http.StatusOK, "Token refreshed successfully", tokenPair, nil)
+}
+
+// Logout menangani permintaan logout pengguna
+func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		api.SendError(w, http.StatusUnauthorized, "Authorization header is missing")
+		return
+	}
+
+	accessToken := strings.Replace(authHeader, "Bearer ", "", 1)
+	if accessToken == "" {
+		api.SendError(w, http.StatusUnauthorized, "Access token is missing")
+		return
+	}
+
+	err := h.authService.LogoutUser(r.Context(), accessToken)
+	if err != nil {
+		log.Printf("Gagal logout pengguna: %v", err)
+		api.SendError(w, http.StatusInternalServerError, "Failed to logout user")
+		return
+	}
+
+	api.SendSuccess(w, http.StatusOK, "Logout successful", nil, nil)
 }

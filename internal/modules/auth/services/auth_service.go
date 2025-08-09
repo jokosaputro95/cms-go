@@ -50,9 +50,11 @@ func (e LockoutError) Error() string {
 // AuthServiceInterface mendefinisikan kontrak untuk service otentikasi
 type AuthServiceInterface interface {
 	RegisterUser(ctx context.Context, req *dto.RegisterRequestDTO) error
-	LoginUser(ctx context.Context, req *dto.LoginRequestDTO, ip string) (*dto.AuthResponseDTO, error)
-	RefreshToken(ctx context.Context, refreshTokenStr string) (*dto.AuthResponseDTO, error)
-	VerifyEmail(ctx context.Context, token string) error
+    LoginUser(ctx context.Context, req *dto.LoginRequestDTO, ip string) (*dto.AuthResponseDTO, error)
+    LogoutUser(ctx context.Context, tokenStr string) error
+    RefreshToken(ctx context.Context, refreshTokenStr string) (*dto.AuthResponseDTO, error)
+    VerifyEmail(ctx context.Context, token string) error
+    IsTokenRevoked(ctx context.Context, token string) (bool, error)
 }
 
 // AuthService adalah implementasi dari AuthServiceInterface
@@ -261,7 +263,7 @@ func (s *AuthService) LoginUser(ctx context.Context, req *dto.LoginRequestDTO, i
 		UpdatedAt:    user.UpdatedAt,
 	}
 
-	log.Printf("Pengguna %s berhasil login.", user.Username)
+	log.Printf("Pengguna %s:%s berhasil login.", user.Username, user.Email)
 	return data, nil
 }
 
@@ -353,7 +355,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, refreshTokenStr string) 
 	}
 
 	// 7. Revoke (cabut) refresh token lama
-	err = s.authRepo.RevokeRefreshToken(ctx, refreshTokenStr, expiresAt.Time)
+	err = s.authRepo.RevokeToken(ctx, refreshTokenStr, expiresAt.Time)
 	if err != nil {
 		return nil, err
 	}
@@ -364,15 +366,62 @@ func (s *AuthService) RefreshToken(ctx context.Context, refreshTokenStr string) 
 		return nil, fmt.Errorf("gagal membuat token baru: %w", err)
 	}
 
+
+	user, err := s.authRepo.FindUserByEmail(ctx, email)
+	if err != nil || user == nil {
+		return nil, fmt.Errorf("user not found: %w", err)
+	}
+
 	responseDTO := &dto.AuthResponseDTO{
 		ID: userID,
 		AccessToken: tokenPair.AccessToken,
 		RefreshToken: tokenPair.RefreshToken,
 		TokenType: tokenPair.TokenType,
 		ExpiresIn: tokenPair.ExpiresIn,
-		CreatedAt: time.Now().UTC(),
-		UpdatedAt: time.Now().UTC(),
+		// CreatedAt: time.Now().UTC(),
+		// UpdatedAt: time.Now().UTC(),
+		CreatedAt: user.CreatedAt,
+		UpdatedAt: user.UpdatedAt,
 	}
 
 	return responseDTO, nil
+}
+
+// LogoutUser mencabut access token yang sedang digunakan
+func (s *AuthService) LogoutUser(ctx context.Context, tokenStr string) error {
+	// 1. Validasi token dan cek kadaluarsa
+	token, err := s.jwtSvc.ValidateAccessToken(tokenStr)
+	if err != nil {
+		return ErrInvalidToken
+	}
+
+	// 2. Periksa jenis token
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok || !token.Valid {
+		return ErrInvalidToken
+	}
+
+	tokenType, ok := claims["token_type"].(string)
+	if !ok || tokenType != "access" {
+		return ErrInvalidToken
+	
+	}
+
+	expiresAt, err := claims.GetExpirationTime()
+	if err != nil {
+		return ErrInvalidToken
+	}
+
+	// 3. Cabut token dan store ke database
+	err = s.authRepo.RevokeToken(ctx, tokenStr, expiresAt.Time)
+	if err != nil {
+		return fmt.Errorf("gagal cabut token: %w", err)
+	}
+
+	return nil
+}
+
+// IsTokenRevoked adalah implementasi untuk service yang akan dipanggil oleh middleware
+func (s *AuthService) IsTokenRevoked(ctx context.Context, token string) (bool, error) {
+    return s.authRepo.IsTokenRevoked(ctx, token)
 }

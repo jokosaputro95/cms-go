@@ -17,7 +17,7 @@ type contextKey string
 const UserIDContextKey contextKey = "userID"
 
 // AuthMiddleware adalah middleware untuk memvalidasi JWT
-func AuthMiddleware(jwtService services.JWTService) func(http.Handler) http.Handler {
+func AuthMiddleware(jwtService services.JWTService, authService services.AuthServiceInterface) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")
@@ -33,7 +33,21 @@ func AuthMiddleware(jwtService services.JWTService) func(http.Handler) http.Hand
 				return
 			}
 
-			// Validasi token
+			// Periksa apakah token sudak dicabut (di-blacklist)
+			isRevoked, err := authService.IsTokenRevoked(r.Context(), tokenStr)
+			if err != nil {
+				log.Printf("Gagal memeriksa apakah token sudah dicabut: %v", err)
+				api.SendError(w, http.StatusInternalServerError, "Failed to check token revocation")
+				return
+			}
+
+			if isRevoked {
+				api.SendError(w, http.StatusUnauthorized, "Token has been logged out or revoked")
+				return
+			}
+
+			// Validasi token secara sintaksis
+			// Validasi ini memastikan token tidak rusak atau kedaluwarsa secara alami
 			token, err := jwtService.ValidateAccessToken(tokenStr)
 			if err != nil {
 				log.Printf("Gagal memvalidasi token: %v", err)
